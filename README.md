@@ -11,6 +11,7 @@
 - `config/mise/config.toml`：当前运行时配置 `node = "lts"`。
 - `scripts/restore.sh`：预览或恢复配置，覆盖前自动备份。
 - `scripts/sync.sh`：把本机最新的软件清单和配置副本同步到仓库。
+- `scripts/auto-sync.py`：每日自动同步配置，有变化时提交并推送到 `origin/master`。
 - `scripts/macos.sh`：关闭自动纠正、智能引号、智能破折号。
 - `APPS.md`：非 Homebrew 管理的软件清单及安装入口。
 
@@ -101,6 +102,43 @@ git push
 提交前检查差异，确保没有 Token、密码、SSH 私钥或包含凭证的环境变量。
 `.gitignore` 只提供基础排除规则，不能代替内容检查。
 不要把整个 `.ssh`、`.config` 或应用数据目录直接加入仓库。
+
+### 每日自动同步
+
+运行 `./scripts/check-sync.sh` 可以只检查是否需要同步。它将本机 Homebrew
+清单和上述四份配置与仓库副本比较，并单独列出仓库未提交修改；不会执行同步、
+提交或推送，也不会输出配置内容。其他应用及其配置仍需人工核对 `APPS.md`。
+
+每日任务运行 `python3 scripts/auto-sync.py`：先获取并快进到 `origin/master`，
+再同步上述五个文件；有变化时创建 `Sync development configuration` 提交并推送。
+没有变化时不创建提交。推送失败会保留本地提交，下次运行重试。
+
+自动任务要求工作区干净且位于 `master` 分支。存在未提交/未跟踪修改、分支分叉、
+非自动同步产生的未推送提交或疑似凭证时，停止并在结果文件中记录原因。
+凭证检查覆盖常见 Token、私钥、凭证赋值和 URL，不能保证识别所有敏感内容。
+源配置缺失时保留仓库副本，不自动同步删除；不会强制推送。
+
+这台 Mac 已设置用户级 launchd 任务 `com.syfee.dotsfiles.check-sync`，每天本地时间
+09:00 运行（设置时为 Asia/Shanghai，北京时间）。最近一次结果保存在
+`~/Library/Logs/dotsfiles-config-check/latest.txt`。任务配置位于
+`~/Library/LaunchAgents/com.syfee.dotsfiles.check-sync.plist`，需用户已登录；
+不依赖 Codex 应用运行。移动仓库后需更新任务配置中的路径；新电脑需重新设置。
+任务使用系统 Python 3、Homebrew 和 Git；GitHub SSH 认证必须可在无交互模式下使用。
+
+查看结果：
+
+```bash
+cat ~/Library/Logs/dotsfiles-config-check/latest.txt
+```
+
+停止每日检查：
+
+```bash
+launchctl bootout "gui/$(id -u)/com.syfee.dotsfiles.check-sync"
+```
+
+上述命令停止当前登录会话中的任务；如要阻止以后登录时再次加载，将对应的
+`.plist` 文件移出 `~/Library/LaunchAgents/`。
 
 ## 仍需手动配置
 
