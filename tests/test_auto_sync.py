@@ -155,6 +155,19 @@ class AutoSyncTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("已有同步任务运行", result.stdout)
 
+    def test_background_export_can_find_mise_shims(self):
+        shim = self.home / ".local/share/mise/shims/dotfiles-test-runtime"
+        shim.parent.mkdir(parents=True)
+        shim.write_text("#!/bin/sh\nexit 0\n")
+        shim.chmod(0o755)
+        (self.root / "bin/brew").write_text(
+            '#!/bin/sh\ncat "$HOME/brew.fixture" > "${3#--file=}"\n'
+            'if command -v dotfiles-test-runtime >/dev/null; then\n'
+            '  echo \'npm "@example/runtime"\' >> "${3#--file=}"\nfi\n'
+        )
+        self.assertEqual(self.execute().returncode, 0)
+        self.assertIn('npm "@example/runtime"', (self.repo / "Brewfile").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

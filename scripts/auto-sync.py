@@ -20,6 +20,9 @@ MANAGED = {"Brewfile", *FILES}
 SUBJECT = "Sync development configuration"
 ENV = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE="1", HOMEBREW_NO_ANALYTICS="1",
            GIT_TERMINAL_PROMPT="0", GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=15")
+# launchd does not load .zshrc; brew bundle needs mise's npm shim to export npm packages.
+ENV["PATH"] = os.pathsep.join((str(Path.home() / ".local/share/mise/shims"),
+                              str(Path.home() / ".local/bin"), os.environ.get("PATH", os.defpath)))
 
 
 def run(*args):
