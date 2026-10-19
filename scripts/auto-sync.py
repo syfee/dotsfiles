@@ -5,18 +5,11 @@ import fcntl
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import tempfile
 
 REPO = Path(__file__).resolve().parent.parent
-FILES = {
-    "config/zprofile": ".zprofile",
-    "config/zshrc": ".zshrc",
-    "config/gitconfig": ".gitconfig",
-    "config/mise/config.toml": ".config/mise/config.toml",
-}
-MANAGED = {"Brewfile", *FILES}
+SYNC_SCRIPT = str(REPO / "scripts/sync.sh")
 SUBJECT = "Sync development configuration"
 ENV = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE="1", HOMEBREW_NO_ANALYTICS="1",
            GIT_TERMINAL_PROMPT="0", GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=15")
@@ -76,29 +69,30 @@ def sync(log):
     git("fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master")
     # Fast-forward only: never resolve conflicts or force-push unattended.
     git("merge", "--ff-only", "origin/master")
+    managed = set(run("/bin/bash", SYNC_SCRIPT, "--list-files").splitlines())
+    if not managed or any(Path(name).is_absolute() or ".." in Path(name).parts for name in managed):
+        raise RuntimeError("sync.sh 返回了无效的同步文件清单。")
     pending = git("rev-list", "origin/master..HEAD").splitlines()
     for commit in pending:
         paths = set(git("diff-tree", "--no-commit-id", "--name-only", "-r", commit).splitlines())
-        if git("show", "-s", "--format=%s", commit) != SUBJECT or not paths or not paths <= MANAGED:
+        if git("show", "-s", "--format=%s", commit) != SUBJECT or not paths or not paths <= managed:
             raise RuntimeError("存在非自动同步产生的未推送提交，请先手动处理。")
         # Also inspect pending history: a push uploads earlier blobs, not just HEAD.
         for name in paths:
             check_secrets(name, git("show", f"{commit}:{name}").encode())
 
-    brew = shutil.which("brew")
-    if not brew:
-        raise RuntimeError("找不到 Homebrew，已停止。")
     with tempfile.TemporaryDirectory(prefix="dotfiles-auto-sync-") as staging:
-        dump = Path(staging) / "Brewfile"
-        run(brew, "bundle", "dump", f"--file={dump}")
-        captures = {"Brewfile": dump.read_bytes()}
-        for name, source in FILES.items():
-            path = Path.home() / source
+        # sync.sh owns the file mapping and export logic. Validate its snapshot
+        # before updating repository copies, so a rejected capture leaves them intact.
+        run("/bin/bash", SYNC_SCRIPT, "--output-dir", staging)
+        captures = {}
+        for name in sorted(managed):
+            path = Path(staging) / name
             if not path.exists():
                 log(f"源文件缺失，保留仓库副本：{name}")
                 continue
-            if not path.is_file():
-                raise RuntimeError(f"源文件不是普通文件：{name}")
+            if path.is_symlink() or not path.is_file():
+                raise RuntimeError(f"同步副本不是普通文件：{name}")
             captures[name] = path.read_bytes()
 
         changed = []

@@ -33,6 +33,7 @@ class AutoSyncTest(unittest.TestCase):
         self.git("config", "user.email", "sync-test@example.invalid")
         (self.repo / "scripts").mkdir()
         shutil.copy2(SCRIPT, self.repo / "scripts/auto-sync.py")
+        shutil.copy2(SCRIPT.with_name("sync.sh"), self.repo / "scripts/sync.sh")
         for target, source in {"Brewfile": "brew.fixture", "config/zprofile": ".zprofile",
                                "config/zshrc": ".zshrc", "config/gitconfig": ".gitconfig",
                                "config/mise/config.toml": ".config/mise/config.toml"}.items():
@@ -167,6 +168,40 @@ class AutoSyncTest(unittest.TestCase):
         )
         self.assertEqual(self.execute().returncode, 0)
         self.assertIn('npm "@example/runtime"', (self.repo / "Brewfile").read_text())
+
+    def test_snapshot_export_leaves_repository_untouched(self):
+        (self.home / ".zshrc").write_text("export EDITOR=vim\n")
+        snapshot = self.root / "snapshot with spaces"
+        result = subprocess.run(["/bin/bash", str(self.repo / "scripts/sync.sh"),
+                                 "--output-dir", str(snapshot)], cwd=self.repo, env=self.env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((snapshot / "config/zshrc").read_text(), "export EDITOR=vim\n")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_manual_sync_still_updates_without_committing(self):
+        before = self.git("rev-parse", "HEAD")
+        (self.home / ".zshrc").write_text("export EDITOR=vim\n")
+        result = subprocess.run(["/bin/bash", str(self.repo / "scripts/sync.sh")],
+                                cwd=self.repo, env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.repo / "config/zshrc").read_text(), "export EDITOR=vim\n")
+        self.assertEqual(self.git("rev-parse", "HEAD"), before)
+        self.assertEqual(self.remote_head(), before)
+
+    def test_new_mapping_in_sync_sh_is_used_automatically(self):
+        script = self.repo / "scripts/sync.sh"
+        script.write_text(script.read_text()
+                          .replace('config_sources=(', 'config_sources=("$HOME/.extra" ', 1)
+                          .replace('config_paths=(', 'config_paths=(config/extra ', 1))
+        self.git("add", "scripts/sync.sh")
+        self.git("commit", "-m", "Add extra config to sync.sh")
+        self.git("push")
+        (self.home / ".extra").write_text("extra configuration\n")
+        result = self.execute()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.repo / "config/extra").read_text(), "extra configuration\n")
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD"))
 
 
 if __name__ == "__main__":
