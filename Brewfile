@@ -9,8 +9,17 @@ brew "mise"
 brew "ripgrep"
 # Cross-shell prompt for astronauts
 brew "starship"
+# Text interface for Git repositories
+brew "tig"
 # Menu bar usage monitor for Codex and Claude
 cask "steipete/tap/codexbar", trusted: true
 vscode "anysphere.remote-ssh"
-npm "@openai/codex"
-npm "corepack"
+vscode "dbaeumer.vscode-eslint"
+vscode "eamodio.gitlens"
+vscode "esbenp.prettier-vscode"
+vscode "rust-lang.rust-analyzer"
+vscode "ryu1kn.partial-diff"
+vscode "sleistner.vscode-fileutils"
+vscode "steoates.autoimport"
+vscode "streetsidesoftware.code-spell-checker"
+vscode "vscodevim.vim"
