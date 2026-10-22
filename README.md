@@ -135,7 +135,7 @@ git push
 | 字段 | 当前配置及用途 |
 | --- | --- |
 | `Label` | `com.syfee.dotsfiles.check-sync`，供 `launchctl` 查找和管理任务 |
-| `StartCalendarInterval` | `Hour = 9`、`Minute = 0`，每天电脑本地时间 09:00 执行；当前时区是 Asia/Shanghai |
+| `StartCalendarInterval` | `Hour = 21`、`Minute = 0`，每天电脑本地时间 21:00 执行；当前时区是 Asia/Shanghai |
 | `ProgramArguments` | `/usr/bin/python3`、脚本绝对路径、`--report`、结果文件绝对路径 |
 | `WorkingDirectory` | `/Users/syfee/repos/dotsfiles` |
 | `EnvironmentVariables` | 显式设置本机用户的 `HOME` 和包含 Homebrew 的基础 `PATH` |
@@ -148,7 +148,7 @@ git push
 <key>StartCalendarInterval</key>
 <dict>
     <key>Hour</key>
-    <integer>9</integer>
+    <integer>21</integer>
     <key>Minute</key>
     <integer>0</integer>
 </dict>
