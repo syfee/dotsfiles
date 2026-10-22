@@ -123,27 +123,104 @@ git push
 凭证检查覆盖常见 Token、私钥、凭证赋值和 URL，不能保证识别所有敏感内容。
 源配置缺失时保留仓库副本，不自动同步删除；不会强制推送。
 
-这台 Mac 已设置用户级 launchd 任务 `com.syfee.dotsfiles.check-sync`，每天本地时间
-09:00 运行（设置时为 Asia/Shanghai，北京时间）。最近一次结果保存在
-`~/Library/Logs/dotsfiles-config-check/latest.txt`。任务配置位于
-`~/Library/LaunchAgents/com.syfee.dotsfiles.check-sync.plist`，需用户已登录；
-不依赖 Codex 应用运行。移动仓库后需更新任务配置中的路径；新电脑需重新设置。
-任务使用系统 Python 3、Homebrew 和 Git；GitHub SSH 认证必须可在无交互模式下使用。
+#### 定时机制
+
+定时由 macOS 自带的 `launchd` 负责。用户级 LaunchAgent 在登录时加载，到指定时间
+启动一次 Python 脚本，脚本完成后退出；平时没有同步脚本持续轮询。
+定时执行不依赖 Codex 应用运行，也不调用模型。
+
+这台 Mac 的配置文件是
+`~/Library/LaunchAgents/com.syfee.dotsfiles.check-sync.plist`，主要字段如下：
+
+| 字段 | 当前配置及用途 |
+| --- | --- |
+| `Label` | `com.syfee.dotsfiles.check-sync`，供 `launchctl` 查找和管理任务 |
+| `StartCalendarInterval` | `Hour = 9`、`Minute = 0`，每天电脑本地时间 09:00 执行；当前时区是 Asia/Shanghai |
+| `ProgramArguments` | `/usr/bin/python3`、脚本绝对路径、`--report`、结果文件绝对路径 |
+| `WorkingDirectory` | `/Users/syfee/repos/dotsfiles` |
+| `EnvironmentVariables` | 显式设置本机用户的 `HOME` 和包含 Homebrew 的基础 `PATH` |
+| `StandardOutPath` | `~/Library/Logs/dotsfiles-config-check/scheduler.log`，累积运行输出 |
+| `StandardErrorPath` | `~/Library/Logs/dotsfiles-config-check/scheduler-error.log`，进程错误输出 |
+
+表中的 `~` 用于简写；实际 plist 中使用绝对路径。定时字段的 XML 内容为：
+
+```xml
+<key>StartCalendarInterval</key>
+<dict>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+</dict>
+```
+
+到点执行的命令等价于：
+
+```bash
+/usr/bin/python3 /Users/syfee/repos/dotsfiles/scripts/auto-sync.py \
+  --report /Users/syfee/Library/Logs/dotsfiles-config-check/latest.txt
+```
+
+执行流程是 `launchd → auto-sync.py → sync.sh 生成临时副本 → 检查并写入仓库 → commit → push`。
+`auto-sync.py` 使用文件锁避免并发同步，并将本次结果原子替换到 `latest.txt`。
+后台环境不会加载 `.zshrc`，所以 Python 脚本额外将 `~/.local/share/mise/shims`
+和 `~/.local/bin` 加入子进程 `PATH`，确保 Homebrew 导出时能找到 mise 管理的 npm。
+
+任务运行需要电脑开机、用户已登录，并安装系统 Python 3、Homebrew 和 Git；
+获取远程更新和推送还需要网络，以及可在无交互模式下使用的 GitHub SSH 认证。
+plist 保存在本机用户目录，不在本仓库中，`restore.sh` 不会恢复它；新电脑需重新配置。
+移动仓库后需修改 plist 中的脚本路径和工作目录，再重新加载任务。
+
+#### 查看与管理任务
+
+列出当前用户已加载的任务，并筛选本任务：
+
+```bash
+launchctl list
+launchctl list | rg dotsfiles
+```
+
+查看本任务的执行命令、运行次数、退出状态和定时规则：
+
+```bash
+launchctl print "gui/$(id -u)/com.syfee.dotsfiles.check-sync"
+```
+
+定时任务平时显示 `not running` 是正常的，表示当前没有执行。
+查看所有图形登录会话任务或系统级任务，可分别运行
+`launchctl print "gui/$(id -u)"` 和 `launchctl print system`。
 
 查看结果：
 
 ```bash
 cat ~/Library/Logs/dotsfiles-config-check/latest.txt
+tail -n 50 ~/Library/Logs/dotsfiles-config-check/scheduler.log
+tail -n 50 ~/Library/Logs/dotsfiles-config-check/scheduler-error.log
 ```
 
-停止每日检查：
+手动触发一次完整同步（有变化时会提交并推送）：
+
+```bash
+launchctl kickstart "gui/$(id -u)/com.syfee.dotsfiles.check-sync"
+```
+
+停止并卸载当前登录会话中的任务：
 
 ```bash
 launchctl bootout "gui/$(id -u)/com.syfee.dotsfiles.check-sync"
 ```
 
-上述命令停止当前登录会话中的任务；如要阻止以后登录时再次加载，将对应的
-`.plist` 文件移出 `~/Library/LaunchAgents/`。
+重新加载已卸载的任务：
+
+```bash
+plutil -lint "$HOME/Library/LaunchAgents/com.syfee.dotsfiles.check-sync.plist"
+launchctl bootstrap "gui/$(id -u)" \
+  "$HOME/Library/LaunchAgents/com.syfee.dotsfiles.check-sync.plist"
+```
+
+修改 plist 的时间、路径等配置后，先 `bootout`，校验文件，再 `bootstrap`，
+让新配置生效。`bootstrap` 加载定时任务后等待触发；需要立即执行时使用 `kickstart`。
+如要阻止以后登录时再次加载，将对应 plist 移出 `~/Library/LaunchAgents/`。
 
 ## 仍需手动配置
 
